@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autopilot-dashboard
+  namespace: autopilot
+  labels:
+    app: autopilot-dashboard
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: autopilot-dashboard
+  template:
+    metadata:
+      labels:
+        app: autopilot-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: your-registry/autopilot-dashboard:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 30
+      nodeSelector:
+        kubernetes.io/arch: arm64

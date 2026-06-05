@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: autopilot-config
+  namespace: autopilot
+data:
+  K8S_IN_CLUSTER: "true"
+  TARGET_NAMESPACES: "default,production,staging"
+  CLAUDE_MODEL: "claude-sonnet-4-20250514"
+  AI_CONFIDENCE_THRESHOLD: "85"
+  REDIS_URL: "redis://redis.autopilot.svc.cluster.local:6379"
+  JENKINS_URL: "http://jenkins.jenkins.svc.cluster.local:8080"
+  JENKINS_MAX_RETRIES: "2"
+  SLACK_ALERT_CHANNEL: "#devops-alerts"
+  SLACK_APPROVAL_CHANNEL: "#devops-approvals"
+  SLACK_APPROVAL_TIMEOUT_MINUTES: "30"
+  SCAN_INTERVAL_SECONDS: "30"
+  POST_FIX_VERIFY_DELAY_SECONDS: "120"
+  ENABLE_AUTO_FIX: "true"
+  DRY_RUN: "false"
+  DRIFT_AUTO_CORRECT: "false"
+  API_PORT: "8000"
+  DASHBOARD_URL: "http://autopilot-dashboard.autopilot.svc.cluster.local"
+  AGENT_URL: "http://autopilot-agent.autopilot.svc.cluster.local:8000"

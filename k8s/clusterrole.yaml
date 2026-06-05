@@ -1,0 +1,40 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: autopilot-agent-role
+rules:
+- apiGroups: [""]
+  resources: [pods, pods/log, pods/exec, pods/eviction, services, endpoints,
+              nodes, configmaps, persistentvolumeclaims, resourcequotas,
+              namespaces, events, secrets]
+  verbs: [get, list, watch]
+- apiGroups: [apps]
+  resources: [deployments, replicasets, statefulsets, daemonsets]
+  verbs: [get, list, watch, patch, update]
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [delete]
+- apiGroups: [""]
+  resources: [nodes]
+  verbs: [patch, update]
+- apiGroups: [""]
+  resources: [configmaps]
+  verbs: [create, patch, update]
+- apiGroups: [apps]
+  resources: [deployments]
+  verbs: [patch, update]
+- apiGroups: [autoscaling]
+  resources: [horizontalpodautoscalers]
+  verbs: [get, list, watch, patch, update]
+- apiGroups: [networking.k8s.io]
+  resources: [ingresses]
+  verbs: [get, list, watch]
+- apiGroups: [policy]
+  resources: [poddisruptionbudgets]
+  verbs: [get, list]
+- apiGroups: [batch]
+  resources: [jobs, cronjobs]
+  verbs: [get, list, watch]
+- apiGroups: [cert-manager.io]
+  resources: [certificates, certificaterequests]
+  verbs: [get, list, watch]
