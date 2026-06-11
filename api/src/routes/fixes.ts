@@ -1,18 +1,15 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
-import { Redis } from 'ioredis'
+import axios from 'axios'
 import { query } from '../db/client'
+import { config } from '../config'
 import { createError } from '../middleware/errorHandler'
+import { ratio, toCamel } from '../utils/shape'
 
 const router = Router()
 
-// Redis client is injected via app.locals
-function getRedis(req: Request): Redis {
-  return req.app.locals.redis as Redis
-}
-
 const ListQuerySchema = z.object({
-  result: z.enum(['success', 'failure', 'pending']).optional(),
+  result: z.enum(['success', 'failed', 'partial', 'skipped', 'pending']).optional(),
   from_date: z.string().datetime({ offset: true }).optional(),
   to_date: z.string().datetime({ offset: true }).optional(),
   page: z.coerce.number().int().positive().default(1),
@@ -41,11 +38,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
       params.push(result)
     }
     if (from_date) {
-      conditions.push(`started_at >= $${idx++}`)
+      conditions.push(`executed_at >= $${idx++}`)
       params.push(from_date)
     }
     if (to_date) {
-      conditions.push(`started_at <= $${idx++}`)
+      conditions.push(`executed_at <= $${idx++}`)
       params.push(to_date)
     }
 
@@ -63,7 +60,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
        FROM fix_executions fe
        LEFT JOIN incidents i ON i.id = fe.incident_id
        ${whereClause}
-       ORDER BY fe.started_at DESC
+       ORDER BY fe.executed_at DESC
        LIMIT $${idx++} OFFSET $${idx++}`,
       [...params, limit, offset]
     )
@@ -72,17 +69,16 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
     const successRateRes = await query<{ success: string; failure: string }>(
       `SELECT
          COUNT(*) FILTER (WHERE result = 'success') as success,
-         COUNT(*) FILTER (WHERE result = 'failure') as failure
+         COUNT(*) FILTER (WHERE result = 'failed') as failure
        FROM fix_executions ${whereClause}`,
       params
     )
     const successCount = parseInt(successRateRes.rows[0]?.success ?? '0', 10)
     const failureCount = parseInt(successRateRes.rows[0]?.failure ?? '0', 10)
-    const denom = successCount + failureCount
-    const successRate = denom > 0 ? parseFloat(((successCount / denom) * 100).toFixed(2)) : 0
+    const successRate = ratio(successCount, successCount + failureCount)
 
     res.json({
-      fixes: dataResult.rows,
+      fixes: toCamel(dataResult.rows),
       total,
       successRate,
     })
@@ -97,22 +93,20 @@ router.get('/patterns', async (_req: Request, res: Response, next: NextFunction)
     const result = await query(
       `SELECT
          id,
-         problem_type,
-         fix_strategy,
-         fix_commands,
+         problem_pattern,
+         fix_action,
          success_count,
          failure_count,
-         last_used_at,
-         created_at,
+         last_used,
          CASE
            WHEN (success_count + failure_count) = 0 THEN 0
-           ELSE ROUND((success_count::numeric / (success_count + failure_count)) * 100, 2)
+           ELSE ROUND((success_count::numeric / (success_count + failure_count)), 4)
          END AS success_rate
        FROM fix_patterns
        ORDER BY (success_count + failure_count) DESC`
     )
 
-    res.json(result.rows)
+    res.json(toCamel(result.rows))
   } catch (err) {
     next(err)
   }
@@ -145,19 +139,18 @@ router.post('/:incident_id/approve', async (req: Request, res: Response, next: N
       return next(createError(`Incident is not awaiting approval (current status: ${incident.status})`, 409, 'INVALID_STATE'))
     }
 
-    const redis = getRedis(req)
-    const payload = JSON.stringify({
-      incident_id,
-      approver,
-      action: 'approve',
-      approved_at: new Date().toISOString(),
-    })
-
-    await redis.publish('autopilot:approvals', payload)
+    await axios.post(
+      `${config.agentUrl}/fixes/${incident_id}/approve`,
+      { approver },
+      {
+        timeout: 30000,
+        headers: { 'X-API-Key': config.apiKey },
+      },
+    )
 
     res.json({
       approved: true,
-      message: 'Fix queued for execution',
+      message: 'Fix executed',
     })
   } catch (err) {
     next(err)

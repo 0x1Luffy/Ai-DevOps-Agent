@@ -4,6 +4,7 @@ import { Redis } from 'ioredis'
 import { query } from '../db/client'
 import { config } from '../config'
 import { createError } from '../middleware/errorHandler'
+import { toCamel } from '../utils/shape'
 
 const router = Router()
 
@@ -12,6 +13,46 @@ const HEALTH_CACHE_TTL = 30 // seconds
 
 function getRedis(req: Request): Redis {
   return req.app.locals.redis as Redis
+}
+
+function agentHeaders() {
+  return { 'X-API-Key': config.apiKey }
+}
+
+function shapeClusterHealth(data: any) {
+  const checks = data?.checks ?? {}
+  const issues = Array.isArray(data?.issues) ? data.issues : []
+  const detailFor = (key: string) => {
+    const check = checks[key] ?? {}
+    const rawIssues = Array.isArray(check.issues) ? check.issues : []
+    return rawIssues.length > 0 ? rawIssues.join(', ') : 'No issues detected'
+  }
+  const pctFor = (key: string) => {
+    const check = checks[key] ?? {}
+    const score = Number(check.score ?? 0)
+    const maxScore = Number(check.max_score ?? 100)
+    return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0
+  }
+
+  return {
+    status: data?.status ?? 'UNHEALTHY',
+    score: data?.score ?? 0,
+    maxScore: data?.max_score ?? 100,
+    recommendation: data?.recommendation ?? 'Unable to evaluate cluster health',
+    evaluatedAt: data?.evaluated_at,
+    checks: {
+      nodesReady: { score: pctFor('nodes'), details: detailFor('nodes') },
+      podHealth: { score: pctFor('pod_health'), details: detailFor('pod_health') },
+      pvcHealth: { score: pctFor('pvc_health'), details: detailFor('pvc_health') },
+      recentIncidents: { score: pctFor('recent_incidents'), details: detailFor('recent_incidents') },
+    },
+    issues: issues.map((issue: unknown) => {
+      if (typeof issue === 'string') {
+        return { type: 'Cluster issue', detail: issue, severity: data?.status ?? 'DEGRADED' }
+      }
+      return toCamel(issue)
+    }),
+  }
 }
 
 // GET /api/cluster/health
@@ -30,9 +71,10 @@ router.get('/health', async (req: Request, res: Response, next: NextFunction): P
     // Fetch from agent
     const response = await axios.get(`${config.agentUrl}/cluster/health-gate`, {
       timeout: 10000,
+      headers: agentHeaders(),
     })
 
-    const data: unknown = response.data
+    const data = shapeClusterHealth(response.data)
 
     // Cache for 30 seconds
     await redis.setex(HEALTH_CACHE_KEY, HEALTH_CACHE_TTL, JSON.stringify(data))
@@ -56,6 +98,7 @@ router.get('/nodes', async (_req: Request, res: Response, next: NextFunction): P
   try {
     const response = await axios.get(`${config.agentUrl}/cluster/nodes`, {
       timeout: 10000,
+      headers: agentHeaders(),
     })
 
     res.json(response.data)
@@ -83,7 +126,7 @@ router.get('/namespaces', async (_req: Request, res: Response, next: NextFunctio
       `SELECT
          namespace,
          COUNT(*) FILTER (WHERE status IN ('open', 'fixing', 'needs_approval')) AS open_incidents,
-         COUNT(*) FILTER (WHERE severity = 'critical' AND status IN ('open', 'fixing', 'needs_approval')) AS critical_incidents
+         COUNT(*) FILTER (WHERE severity = 'CRITICAL' AND status IN ('open', 'fixing', 'needs_approval')) AS critical_incidents
        FROM incidents
        GROUP BY namespace
        ORDER BY open_incidents DESC`

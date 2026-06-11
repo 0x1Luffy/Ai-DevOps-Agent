@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { query } from '../db/client'
 import { createError } from '../middleware/errorHandler'
+import { ratio } from '../utils/shape'
 
 const router = Router()
 
@@ -35,12 +36,12 @@ router.get('/trends', async (req: Request, res: Response, next: NextFunction): P
       // Fix success rate by day
       query<{ date: string; success: string; total: string }>(
         `SELECT
-           DATE(started_at) AS date,
+           DATE(executed_at) AS date,
            COUNT(*) FILTER (WHERE result = 'success') AS success,
            COUNT(*) AS total
          FROM fix_executions
-         WHERE started_at >= $1
-         GROUP BY DATE(started_at)
+         WHERE executed_at >= $1
+         GROUP BY DATE(executed_at)
          ORDER BY date ASC`,
         [since]
       ),
@@ -100,7 +101,7 @@ router.get('/trends', async (req: Request, res: Response, next: NextFunction): P
       const success = parseInt(row.success, 10)
       return {
         date: row.date,
-        successRate: total > 0 ? parseFloat(((success / total) * 100).toFixed(2)) : 0,
+        successRate: ratio(success, total) * 100,
       }
     })
 

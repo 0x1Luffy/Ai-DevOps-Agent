@@ -61,8 +61,8 @@ export function FixHistoryPage() {
   })
 
   // Build trend chart data — use API data or generate placeholder
-  const chartData: TrendData[] = Array.isArray(trendsData)
-    ? (trendsData as TrendData[])
+  const chartData: TrendData[] = Array.isArray((trendsData as { fixSuccessByDay?: TrendData[] } | undefined)?.fixSuccessByDay)
+    ? (trendsData as { fixSuccessByDay: TrendData[] }).fixSuccessByDay
     : Array.from({ length: 30 }, (_, i) => ({
         date: format(subDays(new Date(), 29 - i), 'MMM d'),
         successRate: 0,

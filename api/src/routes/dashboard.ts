@@ -2,8 +2,13 @@ import { Router, Request, Response, NextFunction } from 'express'
 import axios from 'axios'
 import { query } from '../db/client'
 import { config } from '../config'
+import { toCamel, ratio } from '../utils/shape'
 
 const router = Router()
+
+function agentHeaders() {
+  return { 'X-API-Key': config.apiKey }
+}
 
 interface ActivityEvent {
   id: string
@@ -37,14 +42,14 @@ router.get('/summary', async (_req: Request, res: Response, next: NextFunction):
       incidentTrendRes,
     ] = await Promise.allSettled([
       // Cluster health from agent
-      axios.get(`${config.agentUrl}/cluster/health-gate`, { timeout: 5000 }).catch(() => null),
+      axios.get(`${config.agentUrl}/cluster/health-gate`, { timeout: 5000, headers: agentHeaders() }).catch(() => null),
       // Open incidents count
       query<{ count: string }>(
         "SELECT COUNT(*) as count FROM incidents WHERE status IN ('open', 'fixing')"
       ),
       // Critical open incidents
       query<{ count: string }>(
-        "SELECT COUNT(*) as count FROM incidents WHERE severity = 'critical' AND status IN ('open', 'fixing')"
+        "SELECT COUNT(*) as count FROM incidents WHERE severity = 'CRITICAL' AND status IN ('open', 'fixing')"
       ),
       // Fixed in last 24h
       query<{ count: string }>(
@@ -57,7 +62,7 @@ router.get('/summary', async (_req: Request, res: Response, next: NextFunction):
            COUNT(*) FILTER (WHERE result = 'success') as success,
            COUNT(*) as total
          FROM fix_executions
-         WHERE started_at >= $1`,
+         WHERE executed_at >= $1`,
         [sevenDaysAgo.toISOString()]
       ),
       // Active approvals
@@ -96,14 +101,14 @@ router.get('/summary', async (_req: Request, res: Response, next: NextFunction):
       // Recent fixes (last 10)
       query<{
         id: string
-        started_at: Date
+        executed_at: Date
         result: string
         incident_id: string
-        fix_strategy: string
+        fix_action: string
       }>(
-        `SELECT id, started_at, result, incident_id, fix_strategy
+        `SELECT id, executed_at, result, incident_id, fix_action
          FROM fix_executions
-         ORDER BY started_at DESC
+         ORDER BY executed_at DESC
          LIMIT 10`
       ),
       // Incident trend last 7 days
@@ -122,10 +127,10 @@ router.get('/summary', async (_req: Request, res: Response, next: NextFunction):
     // Extract values safely from settled promises
     const clusterHealthData =
       clusterHealthResult.status === 'fulfilled' && clusterHealthResult.value
-        ? (clusterHealthResult.value as { data: { health_score?: number; status?: string } }).data
-        : null
+      ? (clusterHealthResult.value as { data: { score?: number; status?: string } }).data
+      : null
 
-    const clusterHealthScore = clusterHealthData?.health_score ?? 0
+    const clusterHealthScore = clusterHealthData?.score ?? 0
     const clusterStatus = clusterHealthData?.status ?? 'unknown'
 
     const openIncidents =
@@ -148,7 +153,7 @@ router.get('/summary', async (_req: Request, res: Response, next: NextFunction):
       const row = fixSuccessRateRes.value.rows[0]
       const total = parseInt(row?.total ?? '0', 10)
       const success = parseInt(row?.success ?? '0', 10)
-      fixSuccessRate = total > 0 ? parseFloat(((success / total) * 100).toFixed(2)) : 0
+      fixSuccessRate = ratio(success, total)
     }
 
     const activeApprovals =
@@ -190,8 +195,8 @@ router.get('/summary', async (_req: Request, res: Response, next: NextFunction):
         recentActivity.push({
           id: row.id,
           type: 'fix',
-          timestamp: row.started_at,
-          description: `Fix (${row.fix_strategy}) ${row.result === 'success' ? 'succeeded' : row.result === 'failure' ? 'failed' : 'started'} for incident ${row.incident_id}`,
+          timestamp: row.executed_at,
+          description: `Fix (${row.fix_action}) ${row.result === 'success' ? 'succeeded' : row.result === 'failed' ? 'failed' : 'started'} for incident ${row.incident_id}`,
           result: row.result,
         })
       }

@@ -2,18 +2,22 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { query } from '../db/client'
 import { createError } from '../middleware/errorHandler'
+import { toCamel } from '../utils/shape'
 
 const router = Router()
 
 const ListQuerySchema = z.object({
   namespace: z.string().optional(),
-  severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
-  status: z.enum(['open', 'fixing', 'fixed', 'failed', 'needs_approval']).optional(),
+  severity: z.string().optional(),
+  status: z.string().optional(),
   problem_type: z.string().optional(),
+  problemType: z.string().optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
   from_date: z.string().datetime({ offset: true }).optional(),
   to_date: z.string().datetime({ offset: true }).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
   search: z.string().optional(),
 })
 
@@ -24,7 +28,12 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
     if (!parsed.success) {
       return next(createError(parsed.error.errors[0]?.message ?? 'Invalid query params', 400, 'VALIDATION_ERROR'))
     }
-    const { namespace, severity, status, problem_type, page, limit, from_date, to_date, search } = parsed.data
+    const { namespace, page, limit, search } = parsed.data
+    const severity = parsed.data.severity?.toUpperCase()
+    const status = parsed.data.status
+    const problemType = parsed.data.problem_type ?? parsed.data.problemType
+    const fromDate = parsed.data.from_date ?? parsed.data.from
+    const toDate = parsed.data.to_date ?? parsed.data.to
 
     const conditions: string[] = []
     const params: unknown[] = []
@@ -42,17 +51,17 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
       conditions.push(`status = $${idx++}`)
       params.push(status)
     }
-    if (problem_type) {
+    if (problemType) {
       conditions.push(`problem_type = $${idx++}`)
-      params.push(problem_type)
+      params.push(problemType)
     }
-    if (from_date) {
+    if (fromDate) {
       conditions.push(`detected_at >= $${idx++}`)
-      params.push(from_date)
+      params.push(fromDate)
     }
-    if (to_date) {
+    if (toDate) {
       conditions.push(`detected_at <= $${idx++}`)
-      params.push(to_date)
+      params.push(toDate)
     }
     if (search) {
       conditions.push(`(resource_name ILIKE $${idx} OR problem_type ILIKE $${idx} OR namespace ILIKE $${idx})`)
@@ -76,7 +85,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction): Promise
     )
 
     res.json({
-      incidents: dataResult.rows,
+      incidents: toCamel(dataResult.rows),
       total,
       page,
       totalPages,
@@ -127,9 +136,9 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction): P
       open: statusMap['open'] ?? 0,
       fixing: statusMap['fixing'] ?? 0,
       fixed: statusMap['fixed'] ?? 0,
-      by_severity: bySeverity,
-      by_problem_type: byProblemType,
-      avg_resolution_time_minutes,
+      bySeverity,
+      byProblemType,
+      avgResolutionTimeMinutes: avg_resolution_time_minutes,
     })
   } catch (err) {
     next(err)
@@ -148,7 +157,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
     const incident = incidentRes.rows[0]
 
     const fixesRes = await query(
-      'SELECT * FROM fix_executions WHERE incident_id = $1 ORDER BY started_at ASC',
+      'SELECT * FROM fix_executions WHERE incident_id = $1 ORDER BY executed_at ASC',
       [id]
     )
 
@@ -170,20 +179,11 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
     }
 
     for (const fix of fixesRes.rows) {
-      if (fix.started_at) {
+      if (fix.executed_at) {
         timeline.push({
-          timestamp: fix.started_at as Date,
-          event: 'fix_started',
-          detail: `Fix attempt started (strategy: ${fix.fix_strategy as string})`,
-        })
-      }
-      if (fix.completed_at) {
-        timeline.push({
-          timestamp: fix.completed_at as Date,
-          event: fix.result === 'success' ? 'fix_succeeded' : 'fix_failed',
-          detail: fix.result === 'success'
-            ? 'Fix completed successfully'
-            : `Fix failed: ${(fix.error_message as string) || 'unknown error'}`,
+          timestamp: fix.executed_at as Date,
+          event: 'fix_applied',
+          detail: `Fix attempt executed (action: ${fix.fix_action as string})`,
         })
       }
     }
@@ -202,11 +202,11 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction): Prom
       return ta - tb
     })
 
-    res.json({
+    res.json(toCamel({
       ...incident,
       fix_executions: fixesRes.rows,
       timeline,
-    })
+    }))
   } catch (err) {
     next(err)
   }

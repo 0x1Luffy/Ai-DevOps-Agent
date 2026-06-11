@@ -13,8 +13,8 @@ import type {
 } from '../types'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001',
-  headers: { Authorization: `Bearer ${import.meta.env.VITE_API_KEY || 'change-me'}` },
+  baseURL: import.meta.env.VITE_API_URL || '',
+  headers: { Authorization: `Bearer ${import.meta.env.VITE_API_KEY || 'change-me-in-production'}` },
 })
 
 export const fetchIncidents = (params: Record<string, unknown>) =>

@@ -248,13 +248,15 @@ async def main() -> None:
     # ----------------------------------------------------------------
     # 4. Slack Bolt (background thread)
     # ----------------------------------------------------------------
-    if settings.SLACK_BOT_TOKEN:
+    if settings.SLACK_BOT_TOKEN and settings.SLACK_APP_TOKEN:
         try:
             from integrations.slack import SlackIntegration
             slack = SlackIntegration()
-            slack.start_background()
+            slack.start_background(settings.SLACK_APP_TOKEN)
         except Exception as exc:
             logger.warning("Slack Bolt failed to start", error=str(exc))
+    elif settings.SLACK_BOT_TOKEN:
+        logger.info("Slack alerts enabled; Socket Mode disabled because SLACK_APP_TOKEN is not set")
     else:
         logger.warning("SLACK_BOT_TOKEN not set — Slack integration disabled")
 
@@ -271,7 +273,7 @@ async def main() -> None:
     config = uvicorn.Config(
         app=app,
         host="0.0.0.0",
-        port=settings.API_PORT,
+        port=settings.AGENT_PORT,
         log_level="info",
         access_log=True,
     )
@@ -295,7 +297,7 @@ async def main() -> None:
 
     logger.info(
         "AutoPilot DevOps Agent fully started",
-        api_port=settings.API_PORT,
+        api_port=settings.AGENT_PORT,
         scan_interval=settings.SCAN_INTERVAL_SECONDS,
         dry_run=settings.DRY_RUN,
     )

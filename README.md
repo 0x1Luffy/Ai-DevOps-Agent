@@ -79,7 +79,7 @@ cd autopilot-devops-agent
 cp .env.example .env
 ```
 
-Edit `.env` and fill in all required values (at minimum `ANTHROPIC_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`).
+Edit `.env` and fill in the required values. For local Docker Compose, keep `K8S_IN_CLUSTER=false` so the agent uses the mounted kubeconfig. Set `TARGET_NAMESPACES` to the namespace(s) that contain your app, for example `TARGET_NAMESPACES=task-manager`.
 
 ### 2. Start infrastructure
 
@@ -89,19 +89,15 @@ docker compose up -d postgres redis
 docker compose ps
 ```
 
-### 3. Run database migrations
-
-```bash
-docker compose run --rm agent python -m agent.db.migrate
-```
-
-### 4. Start all services
+### 3. Start all services
 
 ```bash
 docker compose up -d
 ```
 
-### 5. Verify
+The Python agent applies the PostgreSQL schema automatically on startup.
+
+### 4. Verify
 
 ```bash
 # Agent health
@@ -109,6 +105,9 @@ curl http://localhost:8000/health
 
 # API health
 curl http://localhost:3001/health
+
+# Agent cluster health gate
+curl -H "X-API-Key: $API_KEY" http://localhost:8000/cluster/health-gate
 
 # Dashboard
 open http://localhost:5173
@@ -447,7 +446,8 @@ storageClassName: oci-bv
 | `ENABLE_AUTO_FIX` | No | `true` | Master switch for auto-fixes |
 | `DRY_RUN` | No | `false` | Log and alert but never execute fixes |
 | `DRIFT_AUTO_CORRECT` | No | `false` | Auto-correct replica drift |
-| `API_PORT` | No | `8000` / `3001` | HTTP port for agent / Node API |
+| `AGENT_PORT` | No | `8000` | HTTP port for the Python agent |
+| `API_PORT` | No | `3001` | HTTP port for the Node.js dashboard API |
 | `API_KEY` | Yes | — | Bearer token for agent API access |
 | `DASHBOARD_URL` | No | — | Dashboard URL (for cross-origin config) |
 | `AGENT_URL` | No | — | Agent URL (used by Node API) |

@@ -16,6 +16,7 @@ import clusterRouter from './routes/cluster'
 import jenkinsRouter from './routes/jenkins'
 import dashboardRouter from './routes/dashboard'
 import metricsRouter from './routes/metrics'
+import settingsRouter from './routes/settings'
 
 const app = express()
 const server = http.createServer(app)
@@ -42,7 +43,7 @@ app.locals.redis = redis
 app.set('trust proxy', 1)
 
 app.use(cors({
-  origin: config.dashboardUrl,
+  origin: true, // reflect requesting origin; auth is enforced via Bearer API-key on all /api routes
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -90,6 +91,7 @@ app.use('/api/cluster', clusterRouter)
 app.use('/api/jenkins', jenkinsRouter)
 app.use('/api/dashboard', dashboardRouter)
 app.use('/api/metrics', metricsRouter)
+app.use('/api/settings', settingsRouter)
 
 // 404 handler for unknown routes
 app.use((_req, res) => {
@@ -132,7 +134,7 @@ async function start(): Promise<void> {
   // Start HTTP server
   server.listen(config.port, () => {
     console.log(`[${new Date().toISOString()}] API server listening on port ${config.port}`)
-    console.log(`[${new Date().toISOString()}] CORS origin: ${config.dashboardUrl}`)
+    console.log(`[${new Date().toISOString()}] CORS: open (all origins — auth enforced via Bearer key)`)
     console.log(`[${new Date().toISOString()}] Agent URL: ${config.agentUrl}`)
   })
 }

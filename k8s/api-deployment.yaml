@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: api
-        image: your-registry/autopilot-api:latest
+        image: 0x1luffy/autopilot-api:latest
         ports:
         - containerPort: 3001
         envFrom:

@@ -12,11 +12,11 @@ class Settings(BaseSettings):
     # Kubernetes
     K8S_IN_CLUSTER: bool = True
     KUBECONFIG: str = "/root/.kube/config"
-    TARGET_NAMESPACES: str = "default,production,staging"
+    TARGET_NAMESPACES: str = "taskflow"
 
     # Anthropic / Claude
     ANTHROPIC_API_KEY: str
-    CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
+    CLAUDE_MODEL: str = "claude-sonnet-4-6"
     AI_CONFIDENCE_THRESHOLD: int = 85
 
     # Database
@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
     # Slack
     SLACK_BOT_TOKEN: str = ""
+    SLACK_APP_TOKEN: str = ""
     SLACK_SIGNING_SECRET: str = ""
     SLACK_ALERT_CHANNEL: str = "#devops-alerts"
     SLACK_APPROVAL_CHANNEL: str = "#devops-approvals"
@@ -57,8 +58,8 @@ class Settings(BaseSettings):
     DRY_RUN: bool = False
     DRIFT_AUTO_CORRECT: bool = False
 
-    # API
-    API_PORT: int = 8000
+    # Agent HTTP API
+    AGENT_PORT: int = 8000
     API_KEY: str = "change-me-in-production"
 
     @property

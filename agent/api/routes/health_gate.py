@@ -16,6 +16,11 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["health"])
 
 
+def _check_api_key(x_api_key: str | None) -> None:
+    if settings.API_KEY and x_api_key != settings.API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
 @router.get("/cluster/health-gate")
 async def cluster_health_gate(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
@@ -29,8 +34,7 @@ async def cluster_health_gate(
       - PVC health (15 pts)
       - Recent incidents (15 pts)
     """
-    if settings.API_KEY and x_api_key != settings.API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+    _check_api_key(x_api_key)
 
     pool = await get_pool()
     checks: dict[str, Any] = {}
@@ -250,3 +254,78 @@ async def cluster_health_gate(
         "issues": all_issues,
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/cluster/nodes")
+async def cluster_nodes(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> list[dict[str, Any]]:
+    """Return live node inventory used by the dashboard."""
+    _check_api_key(x_api_key)
+
+    try:
+        from kubernetes import client as k8s_client, config as k8s_config
+        if settings.K8S_IN_CLUSTER:
+            k8s_config.load_incluster_config()
+        else:
+            k8s_config.load_kube_config(config_file=settings.KUBECONFIG)
+
+        core_v1 = k8s_client.CoreV1Api()
+        import asyncio
+
+        nodes = await asyncio.get_event_loop().run_in_executor(None, core_v1.list_node)
+        pods = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: core_v1.list_pod_for_all_namespaces(watch=False),
+        )
+    except Exception as exc:
+        logger.warning("Node inventory failed", error=str(exc))
+        raise HTTPException(status_code=503, detail=f"Cannot read nodes: {exc}") from exc
+
+    pods_by_node: dict[str, int] = {}
+    for pod in pods.items:
+        node_name = pod.spec.node_name if pod.spec else None
+        if node_name:
+            pods_by_node[node_name] = pods_by_node.get(node_name, 0) + 1
+
+    result: list[dict[str, Any]] = []
+    for node in nodes.items:
+        labels = node.metadata.labels or {}
+        name = node.metadata.name
+        is_control_plane = (
+            "node-role.kubernetes.io/control-plane" in labels
+            or "node-role.kubernetes.io/master" in labels
+        )
+        ready = "NotReady"
+        conditions = []
+        for condition in node.status.conditions or []:
+            conditions.append({
+                "type": condition.type,
+                "status": condition.status,
+                "reason": condition.reason,
+            })
+            if condition.type == "Ready" and condition.status == "True":
+                ready = "Ready"
+
+        taints = [
+            {"key": t.key, "value": t.value, "effect": t.effect}
+            for t in (node.spec.taints or [])
+        ]
+
+        allocatable = node.status.allocatable or {}
+        capacity = node.status.capacity or {}
+        result.append({
+            "name": name,
+            "role": "control-plane" if is_control_plane else "worker",
+            "status": ready,
+            "cpuAllocatable": allocatable.get("cpu", "0"),
+            "cpuUsed": "0",
+            "memoryAllocatable": allocatable.get("memory", "0"),
+            "memoryUsed": "0",
+            "podCount": pods_by_node.get(name, 0),
+            "podCapacity": int(capacity.get("pods", "0")),
+            "conditions": conditions,
+            "taints": taints,
+        })
+
+    return result

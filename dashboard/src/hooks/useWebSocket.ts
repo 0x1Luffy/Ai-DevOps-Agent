@@ -7,7 +7,12 @@ interface WsEvent {
   data: Record<string, unknown>
 }
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001'
+function defaultWsUrl() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/ws`
+}
+
+const WS_URL = import.meta.env.VITE_WS_URL || defaultWsUrl()
 const MAX_BACKOFF_MS = 30_000
 const CHANNELS = ['incidents', 'cluster', 'jenkins']
 

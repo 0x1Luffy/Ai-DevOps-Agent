@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { query } from '../db/client'
 import { createError } from '../middleware/errorHandler'
+import { toCamel } from '../utils/shape'
 
 const router = Router()
 
@@ -72,7 +73,7 @@ router.get('/incidents', async (req: Request, res: Response, next: NextFunction)
     }
 
     res.json({
-      incidents: dataResult.rows,
+      incidents: toCamel(dataResult.rows),
       total,
       failuresByType,
     })

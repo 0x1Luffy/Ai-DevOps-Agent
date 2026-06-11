@@ -5,11 +5,11 @@ metadata:
   namespace: autopilot
 data:
   K8S_IN_CLUSTER: "true"
-  TARGET_NAMESPACES: "default,production,staging"
-  CLAUDE_MODEL: "claude-sonnet-4-20250514"
+  TARGET_NAMESPACES: "taskflow"
+  CLAUDE_MODEL: "claude-sonnet-4-6"
   AI_CONFIDENCE_THRESHOLD: "85"
   REDIS_URL: "redis://redis.autopilot.svc.cluster.local:6379"
-  JENKINS_URL: "http://jenkins.jenkins.svc.cluster.local:8080"
+  JENKINS_URL: "http://JENKINS_SERVER_IP:8080"
   JENKINS_MAX_RETRIES: "2"
   SLACK_ALERT_CHANNEL: "#devops-alerts"
   SLACK_APPROVAL_CHANNEL: "#devops-approvals"
@@ -19,6 +19,7 @@ data:
   ENABLE_AUTO_FIX: "true"
   DRY_RUN: "false"
   DRIFT_AUTO_CORRECT: "false"
-  API_PORT: "8000"
+  AGENT_PORT: "8000"
+  API_PORT: "3001"
   DASHBOARD_URL: "http://autopilot-dashboard.autopilot.svc.cluster.local"
   AGENT_URL: "http://autopilot-agent.autopilot.svc.cluster.local:8000"
