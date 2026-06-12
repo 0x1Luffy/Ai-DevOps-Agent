@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -26,6 +26,9 @@ class AgentConfigUpdate(BaseModel):
     postFixVerifyDelaySeconds: int | None = Field(default=None, ge=5, le=3600)
     slackApprovalTimeoutMinutes: int | None = Field(default=None, ge=1, le=1440)
     targetNamespaces: list[str] | None = None
+    llmProvider: Literal["anthropic", "openai"] | None = None
+    claudeModel: str | None = None
+    openaiModel: str | None = None
 
 
 def _current_config() -> dict[str, Any]:
@@ -38,6 +41,9 @@ def _current_config() -> dict[str, Any]:
         "postFixVerifyDelaySeconds": int(settings.POST_FIX_VERIFY_DELAY_SECONDS),
         "slackApprovalTimeoutMinutes": int(settings.SLACK_APPROVAL_TIMEOUT_MINUTES),
         "targetNamespaces": settings.target_namespaces_list,
+        "llmProvider": str(runtime_config.get("LLM_PROVIDER", settings.LLM_PROVIDER)),
+        "claudeModel": str(runtime_config.get("CLAUDE_MODEL", settings.CLAUDE_MODEL)),
+        "openaiModel": str(runtime_config.get("OPENAI_MODEL", settings.OPENAI_MODEL)),
     }
 
 
@@ -77,5 +83,18 @@ async def update_config(
     if update.targetNamespaces is not None:
         namespaces = [ns.strip() for ns in update.targetNamespaces if ns.strip()]
         settings.TARGET_NAMESPACES = ",".join(namespaces)
+    if update.llmProvider is not None:
+        if update.llmProvider == "anthropic" and not settings.ANTHROPIC_API_KEY:
+            raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY is not configured")
+        if update.llmProvider == "openai" and not settings.OPENAI_API_KEY:
+            raise HTTPException(status_code=400, detail="OPENAI_API_KEY is not configured")
+        runtime_config["LLM_PROVIDER"] = update.llmProvider
+        settings.LLM_PROVIDER = update.llmProvider
+    if update.claudeModel is not None:
+        runtime_config["CLAUDE_MODEL"] = update.claudeModel
+        settings.CLAUDE_MODEL = update.claudeModel
+    if update.openaiModel is not None:
+        runtime_config["OPENAI_MODEL"] = update.openaiModel
+        settings.OPENAI_MODEL = update.openaiModel
 
     return _current_config()

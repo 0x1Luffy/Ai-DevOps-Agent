@@ -55,7 +55,7 @@ autopilot_scan_duration_seconds = Histogram(
 
 autopilot_diagnosis_duration_seconds = Histogram(
     "autopilot_diagnosis_duration_seconds",
-    "Time taken for Claude to return a diagnosis",
+    "Time taken for the LLM provider to return a diagnosis",
     buckets=[0.5, 1, 2, 5, 10, 30],
 )
 

@@ -9,6 +9,7 @@ import {
   CheckCircle,
   X,
   Plus,
+  Cpu,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchAgentConfig, updateAgentConfig } from '../api/client'
@@ -177,6 +178,62 @@ export function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* AI Provider */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Cpu size={16} className="text-indigo-400" />
+          <h2 className="text-gray-200 font-semibold">AI Provider</h2>
+        </div>
+        <p className="text-gray-600 text-xs -mt-2">
+          Choose which LLM powers incident diagnosis. The selected provider's API key must be configured on the agent.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            { id: 'anthropic', label: 'Anthropic Claude' },
+            { id: 'openai', label: 'OpenAI ChatGPT' },
+          ] as const).map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => update('llmProvider', p.id)}
+              className={clsx(
+                'rounded-lg border px-4 py-3 text-sm font-medium transition-colors text-left',
+                localConfig.llmProvider === p.id
+                  ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300'
+                  : 'border-gray-700 bg-gray-800/40 text-gray-400 hover:border-gray-600',
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Model name for the active provider */}
+        <div className="space-y-2">
+          <label className="text-gray-300 text-sm font-medium">
+            {localConfig.llmProvider === 'openai' ? 'OpenAI Model' : 'Claude Model'}
+          </label>
+          {localConfig.llmProvider === 'openai' ? (
+            <input
+              type="text"
+              value={localConfig.openaiModel}
+              onChange={(e) => update('openaiModel', e.target.value)}
+              placeholder="gpt-4o"
+              className="bg-gray-800 border border-gray-600 text-gray-200 text-sm rounded-lg px-3 py-2 w-full placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+            />
+          ) : (
+            <input
+              type="text"
+              value={localConfig.claudeModel}
+              onChange={(e) => update('claudeModel', e.target.value)}
+              placeholder="claude-sonnet-4-6"
+              className="bg-gray-800 border border-gray-600 text-gray-200 text-sm rounded-lg px-3 py-2 w-full placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+            />
+          )}
+        </div>
+      </div>
 
       {/* Agent Behavior Toggles */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5">

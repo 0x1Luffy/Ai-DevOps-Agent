@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -14,10 +14,29 @@ class Settings(BaseSettings):
     KUBECONFIG: str = "/root/.kube/config"
     TARGET_NAMESPACES: str = "taskflow"
 
+    # AI provider — choose "anthropic" (Claude) or "openai" (ChatGPT)
+    LLM_PROVIDER: str = "anthropic"
+
     # Anthropic / Claude
-    ANTHROPIC_API_KEY: str
+    ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL: str = "claude-sonnet-4-6"
+
+    # OpenAI / ChatGPT
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o"
+    OPENAI_BASE_URL: str = ""  # optional override for Azure / compatible gateways
+
     AI_CONFIDENCE_THRESHOLD: int = 85
+
+    @field_validator("LLM_PROVIDER")
+    @classmethod
+    def _normalise_provider(cls, v: str) -> str:
+        provider = v.strip().lower()
+        if provider not in ("anthropic", "openai"):
+            raise ValueError(
+                f"LLM_PROVIDER must be 'anthropic' or 'openai', got '{v}'"
+            )
+        return provider
 
     # Database
     DATABASE_URL: str
@@ -62,6 +81,15 @@ class Settings(BaseSettings):
     AGENT_PORT: int = 8000
     API_KEY: str = "change-me-in-production"
 
+    @model_validator(mode="after")
+    def _require_provider_key(self) -> "Settings":
+        """Ensure the API key for the selected provider is present."""
+        if self.LLM_PROVIDER == "anthropic" and not self.ANTHROPIC_API_KEY:
+            raise ValueError("LLM_PROVIDER=anthropic requires ANTHROPIC_API_KEY")
+        if self.LLM_PROVIDER == "openai" and not self.OPENAI_API_KEY:
+            raise ValueError("LLM_PROVIDER=openai requires OPENAI_API_KEY")
+        return self
+
     @property
     def target_namespaces_list(self) -> list[str]:
         """Return TARGET_NAMESPACES as a Python list."""
@@ -79,4 +107,7 @@ runtime_config: dict[str, Any] = {
     "ENABLE_AUTO_FIX": settings.ENABLE_AUTO_FIX,
     "DRIFT_AUTO_CORRECT": settings.DRIFT_AUTO_CORRECT,
     "AI_CONFIDENCE_THRESHOLD": settings.AI_CONFIDENCE_THRESHOLD,
+    "LLM_PROVIDER": settings.LLM_PROVIDER,
+    "CLAUDE_MODEL": settings.CLAUDE_MODEL,
+    "OPENAI_MODEL": settings.OPENAI_MODEL,
 }

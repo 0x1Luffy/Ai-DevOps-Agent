@@ -6,13 +6,13 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-import anthropic
 import redis.asyncio as aioredis
 import structlog
 from pydantic import BaseModel, Field
 
 from config.prompts.k8s_diagnosis import K8S_SYSTEM_PROMPT
 from config.settings import runtime_config, settings
+from core.llm import get_llm_client
 from db.connection import get_pool
 from db.repos.incidents import create_incident, update_incident_status
 
@@ -143,7 +143,7 @@ class DiagnoserEngine:
     """Async engine that sends incident context to Claude and parses the diagnosis."""
 
     def __init__(self) -> None:
-        self._client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        self._llm = get_llm_client()
         self._redis: aioredis.Redis | None = None
 
     async def _get_redis(self) -> aioredis.Redis:
@@ -185,7 +185,7 @@ class DiagnoserEngine:
 
         # First attempt
         try:
-            raw_response = await self._call_claude(prompt)
+            raw_response = await self._call_llm(prompt)
             diagnosis_dict = json.loads(raw_response)
         except json.JSONDecodeError:
             logger.warning("JSON parse failed on first attempt, retrying with repair prompt")
@@ -194,10 +194,10 @@ class DiagnoserEngine:
                     f"The following is a broken JSON response. "
                     f"Fix it and return ONLY valid JSON:\n\n{raw_response}"
                 )
-                raw_response = await self._call_claude(repair_prompt)
+                raw_response = await self._call_llm(repair_prompt)
                 diagnosis_dict = json.loads(raw_response)
             except Exception as exc:
-                logger.error("Failed to parse Claude response after retry", error=str(exc))
+                logger.error("Failed to parse AI response after retry", error=str(exc))
                 diagnosis_dict = {
                     "rootCause": "Unable to parse AI diagnosis",
                     "severity": incident.severity,
@@ -212,7 +212,7 @@ class DiagnoserEngine:
                     "nodeJsSpecific": "",
                 }
         except Exception as exc:
-            logger.error("Claude API call failed", error=str(exc))
+            logger.error("LLM API call failed", error=str(exc))
             raise
 
         # Apply auto-fix gate
@@ -286,15 +286,14 @@ class DiagnoserEngine:
         )
         return result
 
-    async def _call_claude(self, prompt: str) -> str:
-        """Send prompt to Claude and return the raw text response."""
-        message = await self._client.messages.create(
-            model=settings.CLAUDE_MODEL,
-            max_tokens=2048,
+    async def _call_llm(self, prompt: str) -> str:
+        """Send prompt to the active LLM provider and return the raw text response."""
+        return await self._llm.complete(
             system=K8S_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+            prompt=prompt,
+            max_tokens=2048,
+            json_mode=True,
         )
-        return message.content[0].text if message.content else ""
 
     @staticmethod
     def _build_prompt(incident: IncidentEvent) -> str:

@@ -7,12 +7,12 @@ import base64
 import json
 from typing import Any
 
-import anthropic
 import httpx
 import structlog
 
 from config.prompts.jenkins_diagnosis import JENKINS_SYSTEM_PROMPT
 from config.settings import settings
+from core.llm import get_llm_client
 from db.connection import get_pool
 from db.repos.jenkins import (
     create_jenkins_incident,
@@ -53,7 +53,7 @@ class JenkinsIntegration:
         self._base_url = settings.JENKINS_URL.rstrip("/")
         self._user = settings.JENKINS_USER
         self._token = settings.JENKINS_TOKEN
-        self._client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        self._llm = get_llm_client()
         self._http: httpx.AsyncClient | None = None
 
     def _auth_header(self) -> str:
@@ -306,7 +306,7 @@ class JenkinsIntegration:
         commit_sha: str = "",
         build_info: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Send build failure data to Claude for diagnosis."""
+        """Send build failure data to the active LLM provider for diagnosis."""
         trend = await self.analyze_build_trend(job_name)
         recent_failures = trend.get("recent_failures", [])
 
@@ -337,14 +337,13 @@ class JenkinsIntegration:
         prompt = "\n".join(prompt_lines)
 
         try:
-            message = await self._client.messages.create(
-                model=settings.CLAUDE_MODEL,
-                max_tokens=2048,
+            raw = await self._llm.complete(
                 system=JENKINS_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
+                prompt=prompt,
+                max_tokens=2048,
+                json_mode=True,
             )
-            raw = message.content[0].text if message.content else "{}"
-            return json.loads(raw)
+            return json.loads(raw or "{}")
         except json.JSONDecodeError as exc:
             logger.warning("Failed to parse Jenkins diagnosis JSON", error=str(exc))
             return {"failureType": "UNKNOWN", "action": "notify_team", "retryBuild": False}

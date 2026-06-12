@@ -67,6 +67,8 @@ export interface ActivityEvent {
   severity?: string
 }
 
+export type LLMProvider = 'anthropic' | 'openai'
+
 export interface AgentConfig {
   enableAutoFix: boolean
   dryRun: boolean
@@ -76,4 +78,7 @@ export interface AgentConfig {
   postFixVerifyDelaySeconds: number
   slackApprovalTimeoutMinutes: number
   targetNamespaces: string[]
+  llmProvider: LLMProvider
+  claudeModel: string
+  openaiModel: string
 }
