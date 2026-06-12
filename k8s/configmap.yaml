@@ -6,7 +6,12 @@ metadata:
 data:
   K8S_IN_CLUSTER: "true"
   TARGET_NAMESPACES: "taskflow"
+  # AI provider: "anthropic" (Claude) or "openai" (ChatGPT)
+  LLM_PROVIDER: "anthropic"
   CLAUDE_MODEL: "claude-sonnet-4-6"
+  OPENAI_MODEL: "gpt-4o"
+  # Optional: custom endpoint for Azure OpenAI / compatible gateways (leave empty for default)
+  OPENAI_BASE_URL: ""
   AI_CONFIDENCE_THRESHOLD: "85"
   REDIS_URL: "redis://redis.autopilot.svc.cluster.local:6379"
   JENKINS_URL: "http://JENKINS_SERVER_IP:8080"

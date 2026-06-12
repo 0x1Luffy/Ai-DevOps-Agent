@@ -36,12 +36,14 @@
 AutoPilot is an **autonomous AI DevOps agent**. You deploy it once, point it at your Kubernetes namespace, and it watches your pods 24/7. When something breaks:
 
 1. It **detects** the problem (crash loops, image pull failures, out-of-memory, missing endpoints, and 30+ other issues).
-2. It sends the problem to **Claude AI** (Anthropic), which diagnoses the root cause and writes a fix plan.
+2. It sends the problem to **your chosen AI provider** — either **Anthropic Claude** or **OpenAI ChatGPT** — which diagnoses the root cause and writes a fix plan.
 3. If the confidence score is high enough and it is not a critical issue, it **executes the fix automatically** (restarts pods, rolls back deployments, adjusts resources, etc.).
 4. It sends an **alert to Slack** with what happened and what it did.
 5. For dangerous fixes, it **asks for your approval** via Slack before doing anything.
 
 AutoPilot also integrates with **Jenkins**: when a build pipeline fails, AutoPilot classifies the failure as a flaky test, an infrastructure problem, or a real code bug — and takes action accordingly.
+
+> **🧠 Bring your own AI: Claude OR ChatGPT.** AutoPilot does not lock you into one AI company. If you already pay for an **OpenAI (ChatGPT)** key, use that. If you prefer **Anthropic (Claude)**, use that instead. You pick **one** provider with a single setting (`LLM_PROVIDER`) and supply that provider's API key — nothing else changes. You can even switch between them later from the dashboard **Settings** page without redeploying. The rest of this guide points out exactly where to make this choice.
 
 ---
 
@@ -56,7 +58,7 @@ AutoPilot also integrates with **Jenkins**: when a build pipeline fails, AutoPil
 │  │  (port 8000)    │   incident_queue   │  (port 3001)   │  │
 │  │                 │                   │                │  │
 │  │  • Scans K8s    │   ┌─────────────┐ │  • REST API    │  │
-│  │  • Calls Claude │   │  PostgreSQL │ │  • WebSocket   │  │
+│  │  • Calls AI     │   │  PostgreSQL │ │  • WebSocket   │  │
 │  │  • Applies fixes│──▶│  Database   │◀│  • Read-only   │  │
 │  │  • Jenkins hook │   └─────────────┘ └───────┬────────┘  │
 │  └────────┬────────┘                           │           │
@@ -86,7 +88,7 @@ AutoPilot also integrates with **Jenkins**: when a build pipeline fails, AutoPil
 **Three components run inside K8s:**
 | Component | What it does | Port |
 |-----------|-------------|------|
-| `autopilot-agent` | Python — scans K8s, calls Claude, applies fixes | 30008 (external) |
+| `autopilot-agent` | Python — scans K8s, calls AI (Claude **or** ChatGPT), applies fixes | 30008 (external) |
 | `autopilot-api` | Node.js — serves the REST API and WebSocket | 30010 (external) |
 | `autopilot-dashboard` | React — the browser UI | 30011 (external) |
 
@@ -119,10 +121,17 @@ AutoPilot also integrates with **Jenkins**: when a build pipeline fails, AutoPil
 
 | Key | Where to get it | Required? |
 |-----|----------------|-----------|
-| Anthropic API Key | https://console.anthropic.com | **Yes — required** |
+| Anthropic API Key (Claude) | https://console.anthropic.com | **One of these two is required** |
+| OpenAI API Key (ChatGPT) | https://platform.openai.com/api-keys | **One of these two is required** |
 | Jenkins API Token | Jenkins UI → User → Configure | Only if using Jenkins |
 | Slack Bot Token | https://api.slack.com/apps | Optional |
 | GitHub Token | https://github.com/settings/tokens | Optional |
+
+> **Which AI key do I need — Claude or ChatGPT?** You only need **ONE**, not both. Pick the company you already have an account/billing with:
+> - Have **ChatGPT / OpenAI**? Get an OpenAI key and you will set `LLM_PROVIDER=openai`.
+> - Have **Claude / Anthropic**? Get an Anthropic key and you will set `LLM_PROVIDER=anthropic` (this is the default).
+>
+> Whichever one you pick, you put that key in your secrets and set `LLM_PROVIDER` to match. The other key can be left blank. That's the whole choice — the rest of AutoPilot behaves identically either way.
 
 ---
 
@@ -146,7 +155,14 @@ cp .env.example .env
 Open `.env` and fill in **at minimum** these values:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...     ← Your Anthropic API key (REQUIRED)
+# ── Pick your AI provider: "anthropic" (Claude) OR "openai" (ChatGPT) ──
+LLM_PROVIDER=anthropic            ← Change to "openai" if you use ChatGPT
+
+# Then fill in the key for the provider you chose above.
+# You only need ONE of these — leave the other blank.
+ANTHROPIC_API_KEY=sk-ant-...      ← Fill this if LLM_PROVIDER=anthropic
+OPENAI_API_KEY=sk-proj-...        ← Fill this if LLM_PROVIDER=openai
+
 API_KEY=make-this-a-long-random-string   ← Used to protect the API
 VITE_API_KEY=make-this-a-long-random-string   ← Same value as API_KEY
 
@@ -154,6 +170,8 @@ VITE_API_KEY=make-this-a-long-random-string   ← Same value as API_KEY
 VITE_API_URL=http://localhost:3001
 VITE_WS_URL=ws://localhost:3001
 ```
+
+> **Example — using ChatGPT instead of Claude:** set `LLM_PROVIDER=openai`, put your key in `OPENAI_API_KEY=sk-proj-...`, and leave `ANTHROPIC_API_KEY` blank. The default model is `gpt-4o`; you can change it with `OPENAI_MODEL=` if you want a different one (e.g. `gpt-4o-mini` for lower cost). The agent will refuse to start if `LLM_PROVIDER` and the matching key don't line up — that's a safety check, not a bug.
 
 > **Note:** For local Docker Compose, `K8S_IN_CLUSTER=false` (already set in .env.example). The agent will use your `~/.kube/config` file to connect to K8s. Your cluster's `taskflow` namespace will still be scanned.
 
@@ -274,6 +292,7 @@ Open `k8s/configmap.yaml` and update these values:
 ```yaml
 data:
   TARGET_NAMESPACES: "taskflow"        # ← Your app's namespace
+  LLM_PROVIDER: "anthropic"            # ← "anthropic" (Claude) or "openai" (ChatGPT)
   JENKINS_URL: "http://YOUR_JENKINS_SERVER_IP:8080"  # ← Jenkins server IP
   # Everything else can stay as-is
 ```
@@ -283,12 +302,17 @@ data:
 | Key | What it does | Change it? |
 |-----|-------------|-----------|
 | `TARGET_NAMESPACES` | Which K8s namespaces to watch | Yes — set to `taskflow` |
-| `CLAUDE_MODEL` | Which Claude AI model to use | No — `claude-sonnet-4-6` is correct |
+| `LLM_PROVIDER` | Which AI to use: `anthropic` (Claude) or `openai` (ChatGPT) | Set to whichever provider's key you have |
+| `CLAUDE_MODEL` | Which Claude model to use (when `LLM_PROVIDER=anthropic`) | No — `claude-sonnet-4-6` is correct |
+| `OPENAI_MODEL` | Which OpenAI model to use (when `LLM_PROVIDER=openai`) | Default `gpt-4o`; `gpt-4o-mini` is cheaper |
+| `OPENAI_BASE_URL` | Custom endpoint for Azure OpenAI / gateways (advanced) | Leave empty unless you know you need it |
 | `JENKINS_URL` | Where your Jenkins server lives | Yes — put your Jenkins IP |
 | `SCAN_INTERVAL_SECONDS` | How often to scan for problems | Optional — default 30s is fine |
 | `ENABLE_AUTO_FIX` | Whether to actually apply fixes | Keep `true` for production |
 | `DRY_RUN` | If `true`, logs everything but never fixes | Use `true` for testing |
 | `AI_CONFIDENCE_THRESHOLD` | Min confidence (0-100) before auto-fix | Default 85 is safe |
+
+> **Reminder:** `LLM_PROVIDER` (here in the ConfigMap) and the API key (in your Secrets, next step) must match. If you set `LLM_PROVIDER: "openai"` you must provide `OPENAI_API_KEY`; if you set `anthropic` you must provide `ANTHROPIC_API_KEY`.
 
 ### Step 4: Create the Secrets File
 
@@ -304,7 +328,9 @@ Now open `k8s/secrets.yaml` and fill in your values:
 
 ```yaml
 stringData:
-  ANTHROPIC_API_KEY: "sk-ant-api03-..."    ← From console.anthropic.com (REQUIRED)
+  # ── AI provider key — fill in ONLY the one matching LLM_PROVIDER in the ConfigMap ──
+  ANTHROPIC_API_KEY: "sk-ant-api03-..."    ← Fill if LLM_PROVIDER=anthropic (else leave blank)
+  OPENAI_API_KEY: "sk-proj-..."            ← Fill if LLM_PROVIDER=openai (else leave blank)
   DATABASE_URL: "postgresql://autopilot:autopilot@postgres.autopilot.svc.cluster.local:5432/autopilot"
                                             ← Leave this exactly as-is
   JENKINS_USER: "admin"                    ← Jenkins admin username
@@ -431,7 +457,7 @@ You will be asked for an API key — use the value you set for `API_KEY` in your
 
 AutoPilot can monitor your Jenkins pipelines. When a build fails, AutoPilot:
 1. Fetches the console log from Jenkins
-2. Sends it to Claude AI for analysis
+2. Sends it to your AI provider (Claude or ChatGPT) for analysis
 3. Classifies the failure: **flaky test**, **infra problem**, or **real bug**
 4. For flaky/infra failures: auto-triggers a retry
 5. For real bugs: creates a GitHub issue and sends a Slack alert
@@ -647,7 +673,13 @@ Enter your `API_KEY` when prompted.
 | **Cluster** | Namespace and pod health status |
 | **Jenkins** | Jenkins build history and failure analysis |
 | **Metrics** | Charts of incident rates, fix success rates over time |
-| **Settings** | View current AutoPilot configuration |
+| **Settings** | View/change AutoPilot config — including the **AI Provider** card to switch between Claude and ChatGPT |
+
+### Switching AI provider from the dashboard
+
+On the **Settings** page there is an **AI Provider** card. You can click **Anthropic Claude** or **OpenAI ChatGPT** and edit the model name, then **Save** — the change takes effect immediately, no redeploy needed.
+
+> The provider you switch to must already have its API key configured in your Secrets. If you try to switch to a provider whose key is missing, the dashboard will show an error and keep the current provider.
 
 ### Real-time Updates
 
@@ -664,8 +696,8 @@ The dashboard uses WebSocket to receive live events. You should see new incident
 2. Detects problems (CrashLoopBackOff, ImagePullBackOff, OOMKilled, etc.)
 3. Pushes new incidents to the Redis queue
 4. Worker picks up each incident
-5. Sends incident details to Claude AI
-6. Claude returns: root cause + fix plan + confidence score
+5. Sends incident details to your AI provider (Claude or ChatGPT)
+6. The AI returns: root cause + fix plan + confidence score
 7. If confidence >= 85 AND severity != CRITICAL: auto-fix
 8. If severity == CRITICAL: send Slack approval request, wait up to 30 min
 9. Execute fix (or skip if DRY_RUN=true)
@@ -696,7 +728,8 @@ kubectl logs deployment/autopilot-agent -n autopilot --previous
 ```
 
 Common causes:
-- **`ANTHROPIC_API_KEY` is wrong or missing** — check your secrets.yaml
+- **AI provider key missing/mismatched** — the agent refuses to start if `LLM_PROVIDER` doesn't match a supplied key. If `LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY` must be set; if `LLM_PROVIDER=openai`, `OPENAI_API_KEY` must be set. The log will say e.g. `LLM_PROVIDER=openai requires OPENAI_API_KEY`.
+- **`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` is wrong** — check your secrets.yaml for typos
 - **Can't reach PostgreSQL** — run `kubectl get pods -n autopilot` to see if postgres-0 is Running
 - **Can't reach Redis** — same check for the redis pod
 
@@ -742,6 +775,25 @@ kubectl edit configmap autopilot-config -n autopilot
 # Change DRY_RUN: "false"
 kubectl rollout restart deployment/autopilot-agent -n autopilot
 ```
+
+### I want to switch AI provider (Claude ⇄ ChatGPT) after deploying
+
+**Fastest way (no redeploy):** open the dashboard → **Settings** → **AI Provider** card → pick the provider → **Save**. This works as long as that provider's key is already in your Secrets.
+
+**Permanent way (survives pod restarts):** make sure the key exists in `k8s/secrets.yaml`, then change `LLM_PROVIDER` in the ConfigMap and restart:
+```bash
+# 1. Ensure the target provider's key is filled in secrets.yaml (OPENAI_API_KEY or ANTHROPIC_API_KEY)
+kubectl apply -f k8s/secrets.yaml
+
+# 2. Flip the provider in the ConfigMap (e.g. to openai)
+kubectl edit configmap autopilot-config -n autopilot
+# Change LLM_PROVIDER: "openai"   (and OPENAI_MODEL if you like)
+
+# 3. Restart the agent so it reloads config
+kubectl rollout restart deployment/autopilot-agent -n autopilot
+```
+
+> If the agent crashes after switching, you almost certainly forgot to add the new provider's key to your Secrets (see "Agent pod is in CrashLoopBackOff" above).
 
 ### Database connection issues
 
@@ -865,8 +917,9 @@ AutoPilot-DevOps-Agent/
 
 If you remember nothing else, follow this order:
 
+- [ ] Pick your AI: set `LLM_PROVIDER` in `k8s/configmap.yaml` to `anthropic` (Claude) or `openai` (ChatGPT)
 - [ ] Fill in `k8s/configmap.yaml` — set `JENKINS_URL` to your Jenkins server IP
-- [ ] Fill in `k8s/secrets.yaml` — set `ANTHROPIC_API_KEY` and `API_KEY` at minimum
+- [ ] Fill in `k8s/secrets.yaml` — set the matching AI key (`ANTHROPIC_API_KEY` **or** `OPENAI_API_KEY`) and `API_KEY` at minimum
 - [ ] Build 3 Docker images for ARM64 and push to Docker Hub
 - [ ] Build the dashboard image with `--build-arg VITE_API_URL=http://NODE_IP:30010`
 - [ ] `kubectl apply` all manifests in the order shown in Step 5
